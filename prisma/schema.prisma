@@ -1,0 +1,110 @@
+// Prisma schema — SQLite in dev, designed to migrate to Postgres later.
+// Avoid SQLite-only features. Use String for enum-like fields.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Question {
+  id          String   @id @default(cuid())
+  type        String   // SINGLE | MULTI | FILL | CODING | PRINT | QA
+  title       String
+  body        String   // markdown
+  difficulty  String   // EASY | MEDIUM | HARD
+  tags        String   // JSON string array
+  source      String
+  score       Int      @default(10)
+  payload     String   // JSON, shape depends on type
+  explanation String   // markdown
+  relatedIds  String   @default("[]") // JSON string array
+  isFavorite  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  attempts        Attempt[]
+  reviewState     ReviewState?
+  customPlanItems CustomPlanItem[]
+}
+
+model Attempt {
+  id         String   @id @default(cuid())
+  questionId String
+  userId     String   @default("local")
+  sessionId  String?
+  userAnswer String   // JSON
+  score      Int
+  correct    Boolean
+  details    String   @default("{}") // JSON (test case results, diff, etc.)
+  feedback   String?  // LEARNED | SKIP | STAR
+  createdAt  DateTime @default(now())
+
+  question Question          @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  session  InterviewSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([questionId])
+  @@index([userId])
+  @@index([sessionId])
+}
+
+model ReviewState {
+  id             String   @id @default(cuid())
+  userId         String   @default("local")
+  questionId     String   @unique
+  stage          Int      @default(0) // 0..6, index into Ebbinghaus interval array
+  nextReviewAt   DateTime
+  lastReviewedAt DateTime?
+  mastered       Boolean  @default(false)
+  updatedAt      DateTime @updatedAt
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([userId, nextReviewAt])
+  @@index([userId, mastered, nextReviewAt])
+}
+
+model InterviewSession {
+  id          String    @id @default(cuid())
+  userId      String    @default("local")
+  mode        String    // RANDOM_N | TIMED
+  config      String    // JSON: { count?, durationSec?, typeFilter?, difficultyFilter? }
+  questionIds String    // JSON array of question ids, fixed order
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+  totalScore  Int       @default(0)
+  maxScore    Int       @default(0)
+
+  attempts Attempt[]
+
+  @@index([userId, startedAt])
+}
+
+model CustomPlan {
+  id        String    @id @default(cuid())
+  userId    String    @default("local")
+  name      String
+  filters   String    // JSON: { tags?, types?, difficulties?, count }
+  createdAt DateTime  @default(now())
+  dueAt     DateTime?
+
+  items CustomPlanItem[]
+
+  @@index([userId, createdAt])
+}
+
+model CustomPlanItem {
+  id         String @id @default(cuid())
+  planId     String
+  questionId String
+  order      Int
+
+  plan     CustomPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  question Question   @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, questionId])
+  @@index([planId, order])
+}
